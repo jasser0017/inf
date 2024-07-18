@@ -1,0 +1,134 @@
+version: "3.5"
+services:
+  traefik:
+    image: "traefik:latest"
+    container_name: ${PROJECT_NAME}-proxy
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:90"
+      - "--providers.docker.exposedbydefault=false"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+    ports:
+      - "9090:8080"
+      - "90:80"
+    labels:
+      - "traefik.enable=true"
+
+      # Traefik Dashboard route
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`rproxy.${DOMAIN}`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=web"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+    environment:
+      - TZ=Africa/Tunis
+
+  rabbitmq:
+    image: "rabbitmq:management"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${DOMAIN}`)"
+      - "traefik.http.routers.rabbitmq.entrypoints=web"
+      - "traefik.http.routers.rabbitmq.service=rabbitmqService"
+      - "traefik.http.services.rabbitmqService.loadBalancer.server.port=15672"
+    container_name: ${PROJECT_NAME}-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    networks:
+      - relay-net
+
+  auth-db:
+    image: postgres:latest
+    labels:
+      - "traefik.enable=false"
+    container_name: ${PROJECT_NAME}-authdb
+    environment:
+      - POSTGRES_DB=${AUTH_DB}
+      - POSTGRES_USER=${AUTH_DB_USER}
+      - POSTGRES_PASSWORD=${AUTH_DB_PASS}
+      - POSTGRES_ROOT_PASSWORD=${AUTH_DB_ROOT_PASS}
+      - TZ=Africa/Tunis
+    volumes:
+      - ${BASE_PATH}/databases/auth/:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - database-net
+
+  tothTrack-db:
+    container_name: ${PROJECT_NAME}-db
+    image: postgres:latest
+    environment:
+      - POSTGRES_DB
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - TZ=Africa/Tunis
+    volumes:
+      - ${BASE_PATH}/db-init/initialize-database.sql:/docker-entrypoint-initdb.d/init.sql
+      - ${BASE_PATH}/databases/${MS_NAME}/:/var/lib/postgresql/data
+    networks:
+      - database-net
+
+  pgadmin:
+    container_name: ${PROJECT_NAME}-pgadmin
+    image: dpage/pgadmin4
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pgadmin.rule=Host(`pgadmin.${DOMAIN}`)"
+      - "traefik.http.routers.pgadmin.entrypoints=web"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    ports:
+      - "${PGADMIN_PORT}:80"
+    networks:
+      - database-net
+
+  auth:
+    image: quay.io/keycloak/keycloak:24.0.1
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=Host(`login.${DOMAIN}`)"
+      - "traefik.http.routers.auth.entrypoints=web"
+      - "traefik.http.routers.auth.service=authService"
+      - "traefik.http.services.authService.loadBalancer.server.port=8080"
+    container_name: ${PROJECT_NAME}-auth
+    restart: always
+    command : 
+      - start-dev
+    volumes:
+      - ${BASE_PATH}/keycloak-realms:/opt/keycloak/data/import
+      - ${BASE_PATH}/themes:/opt/keycloak/themes
+      - ${BASE_PATH}/auth/deployments:/opt/jboss/keycloak/providers
+    ports:
+      - "9091:8080"
+    environment:
+      - KEYCLOAK_FRONTEND_URL=${AUTH_PUBLIC_URL}
+      - KEYCLOAK_USER=${AUTH_GUI_USER}
+      - KEYCLOAK_PASSWORD=${AUTH_GUI_PASS}
+      - KEYCLOAK_ADMIN=${AUTH_GUI_USER}
+      - KEYCLOAK_ADMIN_PASSWORD=${AUTH_GUI_PASS}
+      #- KEYCLOAK_IMPORT=/tmp/tothTrack-realm.json
+      - DB_VENDOR=${AUTH_DB_TYPE}
+      - DB_ADDR=${AUTH_DB_HOST}
+      - DB_PORT=${AUTH_DB_PORT}
+      - DB_DATABASE=${AUTH_DB}
+      - DB_USER=${AUTH_DB_USER}
+      - DB_PASSWORD=${AUTH_DB_PASS}
+      - DB_SCHEMA=${AUTH_DB_SCHEMA}
+      - TZ=Africa/Tunis
+    depends_on:
+      - auth-db
+    networks:
+      - relay-net
+      - database-net
+
+networks:
+  relay-net:
+    name: "${PROJECT_NAME}-${RELAY_NETWORK}"
+  database-net:
+    name: "${PROJECT_NAME}-database"
