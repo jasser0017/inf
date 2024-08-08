@@ -112,7 +112,7 @@ services:
       - KEYCLOAK_PASSWORD=${AUTH_GUI_PASS}
       - KEYCLOAK_ADMIN=${AUTH_GUI_USER}
       - KEYCLOAK_ADMIN_PASSWORD=${AUTH_GUI_PASS}
-      #- KEYCLOAK_IMPORT=/tmp/tothTrack-realm.json
+      - KEYCLOAK_IMPORT=/tmp/touth7.json
       - DB_VENDOR=${AUTH_DB_TYPE}
       - DB_ADDR=${AUTH_DB_HOST}
       - DB_PORT=${AUTH_DB_PORT}
